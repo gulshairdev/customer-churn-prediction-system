@@ -1,193 +1,117 @@
-# Customer Churn Prediction System
+# Customer Churn Prediction & Retention Scoring
 
-[Python 3.10+] [XGBoost] [LightGBM] [SHAP] [Streamlit] [Teyzix Core ML-3]
+A machine learning project that estimates telecom customer churn risk, explains model predictions with SHAP, and presents retention priorities in Streamlit.
 
-## 1. Project Overview
+**Python · scikit-learn · XGBoost · LightGBM · SHAP · Streamlit**
 
-This project is an end-to-end machine learning system that predicts which telecom customers are most likely to cancel their service. It is built on the IBM Telco Customer Churn dataset and combines model training, SHAP-based explanations, weekly batch scoring, and a Streamlit dashboard. The goal is to give a retention team a ranked list of at-risk customers and a concrete next action for each one, instead of generic "all customers are equal" outreach.
+[Try the Streamlit demo](https://telco-retention-ai.streamlit.app)
 
-## 2. Business Problem
+## What it does
 
-Telecom companies lose recurring revenue every time a customer leaves, and acquiring a new customer typically costs five to seven times more than keeping an existing one. The retention team cannot call every customer every month, so they need a way to focus on the accounts most likely to churn next. This system identifies at-risk customers before they churn, explains why each one is at risk, and proposes a retention action so the team can act with confidence and a limited budget.
+- Compares Logistic Regression, XGBoost, and LightGBM.
+- Adds customer lifecycle, service, contract, and payment features.
+- Produces churn probabilities and HIGH / MEDIUM / LOW risk groups.
+- Generates SHAP explanations and rule-based retention suggestions for high-risk customers.
+- Provides dashboard pages for overview, model performance, risk segmentation, SHAP, recommendations, and customer drill-down.
 
-## 3. Dataset Description
+### Dataset preview
 
-- **Source**: IBM Telco Customer Churn Dataset (`WA_Fn-UseC_-Telco-Customer-Churn.csv`)
-- **Rows**: 7,043 customers
-- **Features**: 20 input features + 1 target column (`Churn`)
-- **Target**: `Churn` — `Yes` (encoded as 1) or `No` (encoded as 0)
-- **Class balance**: ~26.5% churned, ~73.5% stayed (imbalanced)
+![Churn distribution from the repository's saved analysis](outputs/churn_distribution.png)
 
-### Columns
+## Run locally
 
-| Column | Type | Description |
-| --- | --- | --- |
-| `customerID` | string | Unique customer identifier (dropped before training) |
-| `gender` | category | Customer gender (Female / Male) |
-| `SeniorCitizen` | int | 1 if customer is a senior citizen, else 0 |
-| `Partner` | category | Whether the customer has a partner (Yes / No) |
-| `Dependents` | category | Whether the customer has dependents (Yes / No) |
-| `tenure` | int | Months the customer has stayed with the company |
-| `PhoneService` | category | Whether the customer has phone service (Yes / No) |
-| `MultipleLines` | category | Multiple phone lines (Yes / No / No phone service) |
-| `InternetService` | category | Internet type (DSL / Fiber optic / No) |
-| `OnlineSecurity` | category | Online security add-on (Yes / No / No internet service) |
-| `OnlineBackup` | category | Online backup add-on (Yes / No / No internet service) |
-| `DeviceProtection` | category | Device protection plan (Yes / No / No internet service) |
-| `TechSupport` | category | Tech support add-on (Yes / No / No internet service) |
-| `StreamingTV` | category | Streaming TV add-on (Yes / No / No internet service) |
-| `StreamingMovies` | category | Streaming movies add-on (Yes / No / No internet service) |
-| `Contract` | category | Contract term (Month-to-month / One year / Two year) |
-| `PaperlessBilling` | category | Paperless billing flag (Yes / No) |
-| `PaymentMethod` | category | Payment method (Electronic check / Mailed check / Bank transfer / Credit card) |
-| `MonthlyCharges` | float | Amount charged to the customer per month |
-| `TotalCharges` | float | Total amount charged over the customer's lifetime |
-| `Churn` | category | Target — whether the customer left (Yes / No) |
-
-> Note: `TotalCharges` arrives as text in the raw file because some new customers have a blank value (`" "`). The preprocessing step coerces it to numeric and median-fills the missing rows.
-
-## 4. Feature Engineering
-
-Seven business-driven features are added before encoding:
-
-1. **`tenure_group`** — Lifecycle stage encoded 0–3 (New / Early / Mid / Loyal). Captures the well-known fact that new customers churn far more than long-tenured ones.
-2. **`charges_per_month_ratio`** — `TotalCharges / (tenure + 1)`. Detects sudden billing spikes that often precede churn.
-3. **`has_multiple_services`** — Count of add-on services the customer holds (0–6). More services = higher switching cost = lower churn.
-4. **`is_high_value`** — `1` if `MonthlyCharges > 70`. High-paying customers are valuable but more demanding.
-5. **`contract_risk`** — Ordinal score: Month-to-month=3, One year=2, Two year=1. Month-to-month customers can leave any cycle.
-6. **`payment_risk`** — Ordinal score: Electronic check=2, Mailed check=1, Bank transfer / Credit card=0. Auto-pay reduces churn friction.
-7. **`no_support_services`** — `1` if both `TechSupport` and `OnlineSecurity` are `No`. Customers without support feel unsupported and leave.
-
-## 5. ML Models Trained
-
-| Model | Purpose | Class-imbalance handling |
-| --- | --- | --- |
-| Logistic Regression | Simple baseline that sets the floor every other model has to beat | `class_weight="balanced"` |
-| XGBoost | Primary gradient-boosted trees model | `scale_pos_weight = neg/pos` |
-| LightGBM | Faster gradient boosting for comparison | `class_weight="balanced"` |
-
-**Evaluation metrics**: AUC-ROC (primary), Precision, Recall (most important for revenue protection), F1, Accuracy. The model with the highest test-set AUC-ROC is selected as `best_model.pkl`.
-
-## 6. SHAP Explainability
-
-SHAP (SHapley Additive exPlanations) explains each prediction by attributing how much each feature pushed the predicted churn probability up or down. We use it both globally (which features matter most across all customers) and locally (the top 3 reasons a specific customer is at risk). This turns a "black box" model into something a retention analyst can actually defend in a meeting.
-
-## 7. Risk Segmentation Logic
-
-The weekly scoring pipeline assigns every customer to one of three tiers based on predicted churn probability:
-
-| Tier | Probability range | Suggested response |
-| --- | --- | --- |
-| **HIGH** | ≥ 0.70 | Call within 48 hours |
-| **MEDIUM** | 0.40 – 0.69 | Add to nurture campaign, watch list |
-| **LOW** | < 0.40 | No action, routine engagement |
-
-## 8. Retention Recommendation Examples
-
-The recommender maps each HIGH-risk customer's top SHAP feature to a concrete action. Examples:
-
-1. Top reason is **`contract_risk`** (month-to-month) → *Offer annual contract with 20% discount.*
-2. Top reason is **`MonthlyCharges`** (high bill) → *Offer discounted plan or loyalty reward.*
-3. Top reason is **`no_support_services`** → *Offer free tech support upgrade for 3 months.*
-
-Other rules cover low tenure, fiber-optic complaints, and a default "schedule retention call within 48 hours" for anything else.
-
-## 9. Project Structure
-
-```
-customer-churn-prediction/
-├── data/
-│   └── WA_Fn-UseC_-Telco-Customer-Churn.csv
-├── notebooks/
-│   └── churn_analysis.ipynb
-├── src/
-│   ├── __init__.py
-│   ├── data_loader.py
-│   ├── preprocessor.py
-│   ├── feature_engineer.py
-│   ├── model_trainer.py
-│   ├── explainer.py
-│   ├── scorer.py
-│   ├── recommender.py
-│   └── visualizer.py
-├── models/                # Saved .pkl artifacts
-├── outputs/               # Generated CSVs and PNGs
-├── reports/               # Markdown reports
-├── app.py                 # Streamlit dashboard
-├── main.py                # Pipeline orchestrator
-├── requirements.txt
-└── README.md
-```
-
-## 10. Tech Stack
-
-- **Language**: Python 3.10+
-- **Data**: pandas, numpy
-- **Modeling**: scikit-learn, XGBoost, LightGBM
-- **Explainability**: SHAP
-- **Visualization**: matplotlib, seaborn, plotly
-- **App**: Streamlit
-- **Persistence**: joblib
-
-## 11. Installation
+Use Python 3.10 or newer. The bundled IBM Telco CSV is at [data/WA_Fn-UseC_-Telco-Customer-Churn.csv](data/WA_Fn-UseC_-Telco-Customer-Churn.csv).
 
 ```bash
-git clone <repo-url>
-cd customer-churn-prediction
-pip install -r requirements.txt
+git clone https://github.com/gulshairdev/customer-churn-prediction-system.git
+cd customer-churn-prediction-system
+python -m venv .venv
 ```
 
-Place the dataset at `data/WA_Fn-UseC_-Telco-Customer-Churn.csv` before running the pipeline.
+Windows PowerShell:
 
-## 12. How to Run
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe main.py
+.venv\Scripts\python.exe -m streamlit run app.py
+```
 
-Run the full training and scoring pipeline (loads data, trains models, generates SHAP explanations, scores customers, builds recommendations, and saves all artifacts):
+macOS / Linux:
 
 ```bash
-python main.py
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py
+.venv/bin/python -m streamlit run app.py
 ```
 
-Launch the interactive dashboard:
+Run commands from the repository root. The pipeline writes models, charts, scoring CSVs, and recommendations into `models/` and `outputs/`. Streamlit prints the local dashboard URL, normally `http://localhost:8501`.
 
-```bash
-streamlit run app.py
-```
+The repository includes artifacts from an earlier run, so you can also launch the dashboard directly. Retrain with `main.py` if those files are missing or incompatible with your installed package versions. The dashboard reads saved models and outputs; it does not retrain the models itself.
 
-On Windows PowerShell, if `streamlit` is not on PATH, use:
+## Data and workflow
 
-```bash
-python -m streamlit run app.py
-```
-
-## 13. Model Evaluation Results
-Test-set performance of the best model (Logistic Regression):
-
-| Metric | Score |
+| Item | Current implementation |
 | --- | --- |
-| AUC-ROC | 0.8448 |
-| F1 | 0.6217 |
-| Recall | 0.7888 |
+| Raw dataset | 7,043 customers; 5,174 stayed and 1,869 churned |
+| Target | `Churn`: Yes → 1, No → 0 |
+| Engineered features | Tenure group, charge ratio, service count, high-value flag, contract/payment risk, missing support services |
+| Modeling features | 32 after the current engineering and encoding steps |
+| Split | 5,634 training / 1,409 holdout rows; stratified, `random_state=42` |
+| Model selection | Highest holdout AUC-ROC among the three candidates |
+
+`main.py` loads the data, engineers features, preprocesses, builds EDA charts, compares models, generates SHAP explanations, scores a demonstration batch, creates recommendations, and saves artifacts.
+
+## Reproduced baseline
+
+The Logistic Regression baseline was reproduced using the current data loading, feature engineering, preprocessing, and `class_weight="balanced"` settings:
+
+| Metric | Baseline score |
+| --- | ---: |
+| AUC-ROC | 0.8447 |
 | Precision | 0.5130 |
-## 14. Key Business Insights
+| Recall | 0.7888 |
+| F1 | 0.6217 |
+| Accuracy | 0.7452 |
 
-## 14. Key Business Insights
+[Verification record and package versions](docs/verification.json)
 
-1. 353 out of 1,409 customers (25%) are HIGH risk — these need retention action within 48 hours.
-2. Top churn drivers: Fiber optic internet, short tenure, and month-to-month contracts — these three appear in nearly every HIGH-risk customer's top reasons.
-3. Logistic Regression outperformed XGBoost and LightGBM on AUC-ROC (0.8448) — simpler model won on this dataset, suggesting churn patterns are largely linear.
+This verification retrained the Logistic Regression baseline. Run `main.py` to reproduce the full three-model comparison and SHAP outputs. Saved plots may reflect a different package environment or an earlier run.
 
-## 15. Future Improvements
+The current implementation selects the model on the same holdout used for reporting, and some preprocessing is performed before splitting. A separate validation/test design and a training-only preprocessing pipeline are the next steps for an independent final evaluation.
 
-- Real-time scoring API with FastAPI
-- PostgreSQL backend for production data storage
-- Automated retraining pipeline with Apache Airflow
-- Customer Lifetime Value (CLV) integration so retention spend matches account value
-- A/B testing framework to measure which retention offers actually work
+## Risk groups and outputs
 
-## AMD Hackathon Note
+| Probability | Risk group | Example follow-up |
+| --- | --- | --- |
+| `p >= 0.70` | HIGH | Review the top churn drivers and contact the customer |
+| `0.40 <= p < 0.70` | MEDIUM | Add to a monitoring or nurture list |
+| `p < 0.40` | LOW | Routine engagement |
 
-This project has been tested primarily on CPU environments. Future work includes optimizing training and inference on AMD Radeon GPUs using ROCm for faster execution.
+The current demo scores the held-out batch and writes:
 
-## 16. Author
+- `outputs/weekly_scoring_week_1.csv`: probability, risk level, batch index, week, and date.
+- `outputs/retention_recommendations.csv`: high-risk customers, their top drivers, and suggested actions.
+- `models/best_model.pkl`, `models/scaler.pkl`, `models/feature_names.pkl`, and `models/results_dict.pkl`.
 
-**Gul Shair**
+The workflow is run manually; no weekly scheduler is included. `customer_index` refers to a position in the scored batch, not the original customer ID. Retention actions are rules for demonstration and need review before business use.
+
+## Repository guide
+
+| Path | Purpose |
+| --- | --- |
+| [app.py](app.py) | Streamlit dashboard |
+| [main.py](main.py) | Pipeline orchestration |
+| [src/data_loader.py](src/data_loader.py) | Loading and data inspection |
+| [src/feature_engineer.py](src/feature_engineer.py) | Customer features |
+| [src/preprocessor.py](src/preprocessor.py) | Encoding, split, and scaling |
+| [src/model_trainer.py](src/model_trainer.py) | Three-model training and selection |
+| [src/explainer.py](src/explainer.py) | SHAP explanations |
+| [src/scorer.py](src/scorer.py) | Batch scoring and risk groups |
+| [src/recommender.py](src/recommender.py) | Rule-based retention suggestions |
+| [src/visualizer.py](src/visualizer.py) | Analysis and model-result charts |
+
+## Next steps
+
+Improve evaluation isolation, preserve original customer IDs through scoring, compare probability calibration and decision thresholds, and add automated checks for training and inference consistency.
+
+**Author:** [Gul Shair](https://github.com/gulshairdev) · Teyzix Core ML-3 internship project
